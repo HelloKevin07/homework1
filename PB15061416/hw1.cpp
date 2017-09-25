@@ -1,10 +1,10 @@
 #include"SubImageMatch.h"
 
 int ustc_ConvertBgr2Gray(Mat bgrImg, Mat& grayImg) {
-	int i, psize;
+	int i=0, psize;
 	uchar *Oimagep, *temp;
 
-	if (NULL == grayImg.data )
+	if (NULL == grayImg.data || NULL == bgrImg.data )
 	{
 		printf("image is NULL.");
 		return SUB_IMAGE_MATCH_FAIL;
@@ -12,10 +12,23 @@ int ustc_ConvertBgr2Gray(Mat bgrImg, Mat& grayImg) {
 
 	temp = bgrImg.data;
 	Oimagep = grayImg.data;
-	 psize = bgrImg.rows * bgrImg.cols;
-
-	for (i = 0; i < psize; i++) {
+	 psize = (bgrImg.rows) * (bgrImg.cols);
+	 
+	for (; i < psize-4; i+=4) {
 		*(Oimagep + i)= (*temp * 15 + *(temp + 1) * 75 + *(temp + 2) * 38) >> 7;
+
+		*(Oimagep + i + 1) = (*(temp+3) * 15 + *(temp + 4) * 75 + *(temp + 5) * 38) >> 7;
+
+		*(Oimagep + i + 2) = (*(temp+6) * 15 + *(temp + 7) * 75 + *(temp + 8) * 38) >> 7;
+
+		*(Oimagep + i + 3) = (*(temp+9) * 15 + *(temp + 10) * 75 + *(temp + 11) * 38) >> 7;
+
+		temp = temp + 12;
+
+	}
+	
+	for (; i < psize; i++) {
+		*(Oimagep + i) = (*temp * 15 + *(temp + 1) * 75 + *(temp + 2) * 38) >> 7;
 		temp = temp + 3;
 	}
 	return SUB_IMAGE_MATCH_OK;
@@ -64,12 +77,12 @@ int ustc_CalcAngleMag(Mat gradImg_x, Mat gradImg_y, Mat& angleImg, Mat& magImg) 
 
 
 	int i, psize;
-	float x, y, tg, Theta;
+	float x, y, tg, Theta, temp;
 	float *gradImg_xp = (float*)gradImg_x.data;
 	float *gradImg_yp = (float*)gradImg_y.data;
 	float *angleImgp = (float*)angleImg.data;
 	float *magImgp = (float*)magImg.data;
-	psize = gradImg_x.rows * gradImg_x.cols;
+	psize = (gradImg_x.rows) * (gradImg_x.cols);
 	
 	for (i = 0; i < psize; i++) {
 		y = gradImg_yp[i];
@@ -81,8 +94,21 @@ int ustc_CalcAngleMag(Mat gradImg_x, Mat gradImg_y, Mat& angleImg, Mat& magImg) 
 		else {
 			tg = 0;
 		}
+		float t = x*x + y*y;
 		
-		magImgp[i] = FastSqrt(x*x + y*y);// 计算幅值
+		float xhalf = 0.5f*t;
+
+		int k = *(int*)&t;
+
+		k = 0x5f3759df - (k >> 1); // 计算第一个近似根
+
+		t = *(float*)&k;
+
+		t = t*(1.5f - xhalf*t*t); // 牛顿迭代法
+
+		magImgp[i] = 1 / t;
+
+
 		Theta = (atan_table[(int)(tg)+1+115] - atan_table[(int)(tg)+115])*(tg - (int)tg) + atan_table[(int)(tg)+115];//计算辐角
 		
 		if (x && y) {
@@ -112,7 +138,7 @@ int ustc_Threshold(Mat grayImg, Mat& binaryImg, int th) {
 
 	psize = grayImg.rows * grayImg.cols;
 
-	for (i = 0; i < psize; i++) {
+	for (i = 0; i < psize ; i ++) {
 		binaryImgp[i] = (grayImgp[i] >= th) * 255;
 	}
 	return 1;
@@ -180,8 +206,7 @@ int ustc_SubImgMatch_gray(Mat grayImg, Mat subImg, int* x, int* y) {
 				yy = 0;
 				for (; yy < sub_col - 4; yy += 4) {
 					//大图上的像素位置
-					//row_index = i + xx;
-					//col_index = j + yy;
+					
 					big_temp = (i+xx)*col + j + yy;
 					sub_temp = xx*sub_col + yy;
 					bigImg_pix = big_p[big_temp];
@@ -225,8 +250,8 @@ int ustc_SubImgMatch_gray(Mat grayImg, Mat subImg, int* x, int* y) {
 				}
 				//比较匹配误差
 				if (total_diff < min_diff) {
-					*x = i;
-					*y = j;
+					*x = j;
+					*y = i;
 					min_diff = total_diff;
 				}
 			}
@@ -271,9 +296,7 @@ int ustc_SubImgMatch_bgr(Mat colorImg, Mat subImg, int* x, int* y) {
 				yy = 0;
 				for (; yy < sub_col- 4; yy+=4) {
 					//大图上的像素位置
-					//row_index = i + xx;
-					//col_index = j + yy;
-
+					
 					
 					
                     big_temp = 3 * ((i+xx)*col + j+yy);
@@ -347,8 +370,8 @@ int ustc_SubImgMatch_bgr(Mat colorImg, Mat subImg, int* x, int* y) {
 			}
 			//比较匹配误差
 			if (total_diff < min_diff) {
-				*x = i;
-				*y = j;
+				*x = j;
+				*y = i;
 				min_diff = total_diff;
 			}
 		}
@@ -356,291 +379,422 @@ int ustc_SubImgMatch_bgr(Mat colorImg, Mat subImg, int* x, int* y) {
 	return SUB_IMAGE_MATCH_OK;
 }//函数功能：利用色彩进行子图匹配
 
-int ustc_SubImgMatch_corr(Mat grayImg, Mat subImg, int* x, int* y) {
-	if (NULL == grayImg.data || NULL == subImg.data) {
-		printf("img is NULL.");
+
+int ustc_SubImgMatch_corr(Mat grayImg, Mat subImg, int* x, int* y)//偏差
+{
+	if (NULL == grayImg.data || NULL == subImg.data)
+	{
+		printf( "image is NULL." );
 		return SUB_IMAGE_MATCH_FAIL;
 	}
-	
-	int row = grayImg.rows;
-	int col = grayImg.cols;
-	int sub_row = subImg.rows;
-	int sub_col = subImg.cols;
-
-	if (sub_row > row || sub_col > col) {
-		printf("subimage fail");
+	if (grayImg.rows < subImg.rows || grayImg.cols < subImg.cols)
+	{
+		printf("image is false." );
 		return SUB_IMAGE_MATCH_FAIL;
 	}
+	if (x == NULL || NULL == y)
+	{
+		x = new int(0);
+		y = new int(0);
+	}
+	int row_f = grayImg.rows;
+	int col_f = grayImg.cols;
+	int row_s = subImg.rows;
+	int col_s = subImg.cols;
+	int fx = 0, fy = 0;
+	long int gray_sqsum = 0;
+	long int sub_sqsum = 0;
+	long int gray_sub_sum = 0;
+	float corr = 0;
+	int diff[2] = { 0 };
+	int rowlim = row_f - row_s + 1;
+	int collim = col_f - col_s + 1;
+	int i_f, j_f, i_sub, j_sub;
+	uchar *pgray = grayImg.data;
+	uchar *psub = subImg.data;
+	int res = col_s % 4, mod4j = col_s - res;
+	for (i_sub = 0; i_sub < row_s; i_sub++)
+	{
+		int xis = i_sub*col_s;
+		for (j_sub = 0; j_sub < col_s; j_sub++)
+		{
+			sub_sqsum += psub[xis + j_sub] * psub[xis + j_sub];
+		}
+	}
+	for (i_f = 0; i_f < rowlim; i_f++)
+	{
 
-	float min_corr = 0x4fffffff;
-	float corr;
-	float ST;
-	float S2;
-	float T2;
-	int row_index;
-	int col_index;
-	int bigImg_pix;
-	int template_pix;
-	//遍历大图的每一个像素
-	for (int i = 0; i < row - sub_row; i++) {
-		for (int j = 0; j < col - sub_col; j++) {
-			ST = 0;
-			S2 = 0;
-			T2 = 0;
-			//遍历模板上的每一个像素
-			for (int xx = 0; xx < sub_row; xx++) {
-				for (int yy = 0; yy < sub_col; yy++) {
-					//大图上的像素位置
-					row_index = i + xx;
-				    col_index = j + yy;
-					bigImg_pix = grayImg.data[row_index*col + col_index];
-					//模板上的像素位置
-					template_pix = subImg.data[xx*sub_col + yy];
-					ST += (bigImg_pix*template_pix);
-					S2 += (bigImg_pix*bigImg_pix);
-					T2 += (template_pix*template_pix);
+		for (j_f = 0; j_f < collim; j_f++)
+		{
+			corr = 0;
+			gray_sqsum = 0;
+			gray_sub_sum = 0;
+			for (i_sub = 0; i_sub < row_s; i_sub++)
+			{
+				int xif = (i_f + i_sub)*col_f + j_f;
+				int xis1 = i_sub*col_s;
+				for (j_sub = 0; j_sub < mod4j; j_sub += 4)
+				{
+					int numf = xif + j_sub;
+					int nums = xis1 + j_sub;
+					int pgray_ij = pgray[numf + 0];
+					gray_sqsum += pgray_ij * pgray_ij;
+					gray_sub_sum += pgray_ij * psub[nums + 0];
+
+					pgray_ij = pgray[numf + 1];
+					gray_sqsum += pgray_ij * pgray_ij;
+					gray_sub_sum += pgray_ij * psub[nums + 1];
+
+					pgray_ij = pgray[numf + 2];
+					gray_sqsum += pgray_ij * pgray_ij;
+					gray_sub_sum += pgray_ij * psub[nums + 2];
+
+					pgray_ij = pgray[numf + 3];
+					gray_sqsum += pgray_ij * pgray_ij;
+					gray_sub_sum += pgray_ij * psub[nums + 3];
+
 					
 				}
-			}
-			
-			corr =  ST/sqrt(S2*T2);
-			//比较匹配误差
-			if (corr < min_corr) {
-				*x = i;
-				*y = j;
-				min_corr = corr;
-			}
-		}
-	}
-	return SUB_IMAGE_MATCH_OK;
-}//函数功能：利用亮度相关性进行子图匹配
-
-int ustc_SubImgMatch_angle(Mat grayImg, Mat subImg, int* x, int* y) {
-	if (NULL == grayImg.data || NULL == subImg.data)
-	{
-		cout << "image is NULL." << endl;
-		return SUB_IMAGE_MATCH_FAIL;
-	}
-	if (subImg.rows > grayImg.rows || subImg.cols > grayImg.cols) {
-		cout << "subimage is too large." << endl;
-		return SUB_IMAGE_MATCH_FAIL;
-	}
-	//int start = clock();
-	int sub_height = subImg.rows;
-	int sub_width = subImg.cols;
-	Mat sub_gradImg_x(sub_height, sub_width, CV_32FC1);
-	Mat sub_gradImg_y(sub_height, sub_width, CV_32FC1);
-	Mat sub_angleImg(sub_height, sub_width, CV_32FC1);
-	Mat sub_magImg(sub_height, sub_width, CV_32FC1);
-	ustc_CalcGrad(subImg, sub_gradImg_x, sub_gradImg_y);
-	ustc_CalcAngleMag(sub_gradImg_x, sub_gradImg_y, sub_angleImg, sub_magImg);
-	
-	int height = grayImg.rows;
-	int width = grayImg.cols;
-	Mat gradImg_x(height, width, CV_32FC1);
-	Mat gradImg_y(height, width, CV_32FC1);
-	Mat angleImg(height, width, CV_32FC1);
-	Mat magImg(height, width, CV_32FC1);
-	ustc_CalcGrad(grayImg, gradImg_x, gradImg_y);
-	ustc_CalcAngleMag(gradImg_x, gradImg_y,angleImg,magImg);
-	Mat searchImg(height - sub_height, width - sub_width, CV_32FC1);
-	searchImg.setTo(FLT_MAX);
-	for (int row = 1; row < height - sub_height - 1; row++)
-
-	{
-		for (int col = 1; col < width - sub_width - 1; col++)
-		{
-			float total_diff = 0;
-			//遍历模板图上的每一个像素
-			for (int sub_row = 1; sub_row < sub_height - 1; sub_row++)
-			{
-				for (int sub_col = 1; sub_col < sub_width - 1; sub_col++)
+				for (; j_sub < res; j_sub++)
 				{
-					//大图上的像素位置
-					int row_index = row + sub_row;
-					int col_index = col + sub_col;
-					int bigImg_pix = ((float*)angleImg.data)[row_index * width + col_index];
-					//模板图上的像素
-					int template_pix = ((float*)sub_angleImg.data)[sub_row * sub_width + sub_col];
-					total_diff += (bigImg_pix - template_pix)*(2 * !(((bigImg_pix - template_pix) >> 31) & 1) - 1);
+					gray_sqsum += pgray[xif + j_sub] * pgray[xif + j_sub];
+					gray_sub_sum += pgray[xif + j_sub] * psub[xis1 + j_sub];
 				}
-				//存储当前像素位置的匹配误差
-				((float*)searchImg.data)[row * (width - sub_width) + col] = total_diff;
 			}
-
+			corr =(gray_sub_sum) / (sqrt(gray_sqsum)*sqrt(sub_sqsum));
+			diff[0] = corr * 1000;
+			if (diff[0] > diff[1])
+			{
+				diff[1] = diff[0];
+				fx = j_f;
+				fy = i_f;
+			}
 		}
 	}
+	if (diff[1] == 0)
+		return SUB_IMAGE_MATCH_FAIL;
 
-	float tmp = 100; *x = 0; *y = 0;
-	for (int i = 1; i < height - sub_height - 1; i++)
-	{
-		for (int j = 1; j < width - sub_width - 1; j++) {
-			if (((float*)searchImg.data)[i*(width - sub_width) + j] < tmp) {
-				tmp = ((float*)searchImg.data)[i*(width - sub_width) + j];
-				*x = j;
-				*y = i;
-			}
-
-		}
-
-	}
-//	int end = clock();
-	//cout << end - start << endl;
-	return SUB_IMAGE_MATCH_OK;
-    
-	
+	*x = fx;
+	*y = fy;
+	if (i_f == rowlim && j_f == collim)
+		return SUB_IMAGE_MATCH_OK;
+	else
+		return SUB_IMAGE_MATCH_FAIL;
 }
 
-int ustc_SubImgMatch_mag(Mat grayImg, Mat subImg, int* x, int* y) {
+
+
+
+int ustc_SubImgMatch_angle(Mat grayImg, Mat subImg, int* x, int* y)//偏差
+{
 	if (NULL == grayImg.data || NULL == subImg.data)
 	{
-		cout << "image is NULL." << endl;
+		printf("image is NULL."); 
 		return SUB_IMAGE_MATCH_FAIL;
 	}
-	if (subImg.rows > grayImg.rows || subImg.cols > grayImg.cols) {
-		cout << "subimage is too large." << endl;
-		return SUB_IMAGE_MATCH_FAIL;
-	}
-	//int start = clock();
-	int sub_height = subImg.rows;
-	int sub_width = subImg.cols;
-	Mat sub_gradImg_x(sub_height, sub_width, CV_32FC1);
-	Mat sub_gradImg_y(sub_height, sub_width, CV_32FC1);
-	Mat sub_angleImg(sub_height, sub_width, CV_32FC1);
-	Mat sub_magImg(sub_height, sub_width, CV_32FC1);
-	ustc_CalcGrad(subImg, sub_gradImg_x, sub_gradImg_y);
-	ustc_CalcAngleMag(sub_gradImg_x, sub_gradImg_y, sub_angleImg, sub_magImg);
-	int height = grayImg.rows;
-	int width = grayImg.cols;
-	Mat gradImg_x(height, width, CV_32FC1);
-	Mat gradImg_y(height, width, CV_32FC1);
-	Mat angleImg(height, width, CV_32FC1);
-	Mat magImg(height, width, CV_32FC1);
-
-	ustc_CalcGrad(grayImg, gradImg_x, gradImg_y);
-	ustc_CalcAngleMag(gradImg_x, gradImg_y, angleImg, magImg);
-	Mat searchImg(height - sub_height, width - sub_width, CV_32FC1);
-	searchImg.setTo(FLT_MAX);
-	for (int row = 1; row < height - sub_height-1; row++)
-
+	if (grayImg.rows < subImg.rows || grayImg.cols < subImg.cols)
 	{
-		for (int col = 1; col < width - sub_width-1; col++)
+		printf("image is false.");
+		return SUB_IMAGE_MATCH_FAIL;
+	}
+	if (x == NULL || NULL == y)
+	{
+		x = new int(0);
+		y = new int(0);
+	}
+	int i_f, j_f, i_sub, j_sub;
+
+
+	Mat gray_x = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_y = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_angle = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_mag = Mat::zeros(grayImg.size(), CV_32FC1);
+	ustc_CalcGrad(grayImg, gray_x, gray_y);
+	ustc_CalcAngleMag(gray_x, gray_y, gray_angle, gray_mag);
+
+	Mat sub_x = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_y = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_angle = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_mag = Mat::zeros(subImg.size(), CV_32FC1);
+	ustc_CalcGrad(subImg, sub_x, sub_y);
+	ustc_CalcAngleMag(sub_x, sub_y, sub_angle, sub_mag);
+
+	int row_f = grayImg.rows;
+	int col_f = grayImg.cols;
+	int row_s = subImg.rows;
+	int col_s = subImg.cols;
+	int diff[2] = { 0,2147483647 };
+	int sum = 0;
+	int fx = 0, fy = 0;
+	float *pgray = (float*)gray_angle.data;
+	float *psub = (float*)sub_angle.data;
+	int rowlim = row_f - row_s + 1;
+	int collim = col_f - col_s + 1;
+	int res = col_s % 8, mod5j = col_s - res;
+	
+	for (i_f = 0; i_f < rowlim; i_f++)
+	{
+
+		for (j_f = 0; j_f < collim; j_f++)
 		{
-			float total_diff = 0;
-			//遍历模板图上的每一个像素
-			for (int sub_row = 1; sub_row < sub_height-1; sub_row++)
+			diff[0] = 0;
+			for (i_sub = 1; i_sub < row_s - 1; i_sub++)
 			{
-				for (int sub_col = 1; sub_col < sub_width-1; sub_col++)
+				int xif = (i_f + i_sub)*col_f + j_f;
+				int xis = i_sub*col_s;
+				for (j_sub = 1; j_sub < mod5j; j_sub = 8 + j_sub)
 				{
-					//大图上的像素位置
-					int row_index = row + sub_row;
-					int col_index = col + sub_col;
-					float bigImg_pix = ((float*)magImg.data)[row_index * width + col_index];
-					//模板图上的像素
-					float template_pix = ((float*)sub_magImg.data)[sub_row * sub_width + sub_col];
-					int tmpdiffer =(int)( bigImg_pix - template_pix);
-					int antisign = !((tmpdiffer >> 31) & 1);
-					total_diff += (bigImg_pix - template_pix)*(2 * antisign - 1);
+					int numf = xif + j_sub;
+					int nums = xis + j_sub;
+					sum = pgray[numf + 0] - psub[nums + 0];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					int sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 1] - psub[nums + 1];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 2] - psub[nums + 2];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 3] - psub[nums + 3];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 4] - psub[nums + 4];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = (int)pgray[numf + 5] - (int)psub[nums + 5];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 6] - psub[nums + 6];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+
+					sum = pgray[numf + 7] - psub[nums + 7];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
 				}
-				//存储当前像素位置的匹配误差
-				((float*)searchImg.data)[row * (width - sub_width) + col] = total_diff;
+				for (; j_sub < res; j_sub++)
+				{
+					sum = (int)pgray[xif + j_sub] - (int)psub[xis + j_sub];
+					sum = (sum >> 31) *(sum << 1) + sum;
+					int sum0 = 180 - sum;
+					sum = (sum0 >> 31) *((sum << 1) - 360) + sum;
+					diff[0] += sum;
+				}
 			}
-
+			if (diff[0] < diff[1])
+			{
+				diff[1] = diff[0];
+				fx = j_f;
+				fy = i_f;
+			}
 		}
 	}
+	if (diff[1] == 2147483647)
+		return SUB_IMAGE_MATCH_FAIL;
 
-	float tmp = 10; *x = 0; *y = 0;
-	for (int i = 1; i < height - sub_height-1; i++)
-	{
-		for (int j = 1; j < width - sub_width-1; j++) {
-			if (((float*)searchImg.data)[i*(width - sub_width) + j] < tmp) {
-				tmp = ((float*)searchImg.data)[i*(width - sub_width) + j];
-				*x = j;
-				*y = i;
-			}
-
-		}
-
-	}
-	//int end = clock();
-	//cout << end - start << endl;
-	return SUB_IMAGE_MATCH_OK;
-
+	*x = fx;
+	*y = fy;
+	if (i_f == rowlim && j_f == collim)
+		return SUB_IMAGE_MATCH_OK;
+	else
+		return SUB_IMAGE_MATCH_FAIL;
 }
 
-int ustc_SubImgMatch_hist(Mat grayImg, Mat subImg, int* x, int* y) {
+int ustc_SubImgMatch_mag(Mat grayImg, Mat subImg, int* x, int* y)//偏差
+{
 	if (NULL == grayImg.data || NULL == subImg.data)
 	{
-		cout << "image is NULL." << endl;
+		printf( "image is NULL." );
 		return SUB_IMAGE_MATCH_FAIL;
 	}
-	if (subImg.rows > grayImg.rows || subImg.cols > grayImg.cols) {
-		cout << "subimage is too large." << endl;
-		return SUB_IMAGE_MATCH_FAIL;
-	}
-	//int start = clock();
-	int width = grayImg.cols;
-	int height = grayImg.rows;
-	int sub_width = subImg.cols;
-	int sub_height = subImg.rows;
-	int hist_len = 256;
-	int sub_hist[256] = { 0 };
-	int tmp_hist[256] = { 0 };
-	ustc_CalcHist(subImg, sub_hist, 256);
-	//该图用于记录每一个像素位置的匹配误差
-	Mat searchImg = Mat::zeros(height - sub_height, width - sub_width, CV_32FC1);
-	searchImg.setTo(FLT_MAX);
-	//匹配误差初始化
-	//遍历大图每一个像素，注意行列的起始、终止坐标
-	for (int row = 0; row < height - sub_height; row++)
-
+	if (grayImg.rows < subImg.rows || grayImg.cols < subImg.cols)
 	{
-		for (int col = 0; col < width - sub_width; col++)
+		printf("image is false." );
+		return SUB_IMAGE_MATCH_FAIL;
+	}
+	if (x == NULL || NULL == y)
+	{
+		x = new int(0);
+		y = new int(0);
+	}
+	int i_f, j_f, i_sub, j_sub;
+
+	
+	Mat gray_x = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_y = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_angle = Mat::zeros(grayImg.size(), CV_32FC1);
+	Mat gray_mag = Mat::zeros(grayImg.size(), CV_32FC1);
+	ustc_CalcGrad(grayImg, gray_x, gray_y);
+	ustc_CalcAngleMag(gray_x, gray_y, gray_angle, gray_mag);
+
+	Mat sub_x = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_y = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_angle = Mat::zeros(subImg.size(), CV_32FC1);
+	Mat sub_mag = Mat::zeros(subImg.size(), CV_32FC1);
+	ustc_CalcGrad(subImg, sub_x, sub_y);
+	ustc_CalcAngleMag(sub_x, sub_y, sub_angle, sub_mag);
+
+	int row_f = grayImg.rows;
+	int col_f = grayImg.cols;
+	int row_s = subImg.rows;
+	int col_s = subImg.cols;
+	int diff[2] = { 0,2147483647 };
+	int sum = 0;
+	int fx = 0, fy = 0;
+	float *pgray = (float*)gray_mag.data;
+	float *psub = (float*)sub_mag.data;
+	int rowlim = row_f - row_s + 1;
+	int collim = col_f - col_s + 1;
+	int res = col_s % 5, mod5j = col_s - res;
+	//match
+	for (i_f = 0; i_f < rowlim; i_f++)
+	{
+
+		for (j_f = 0; j_f < collim; j_f++)
 		{
-			int total_diff = 0;
-			//直方图清零
-			for (int i = 0; i < hist_len; i++)
+			diff[0] = 0;
+			for (i_sub = 0; i_sub < row_s - 1; i_sub++)
 			{
-				tmp_hist[i] = 0;
-			}
-			//计算直方图
-			for (int row_i = 0; row_i < sub_height; row_i++)
-			{
-				for (int col_j = 0; col_j < sub_width; col_j += 1)
+				int xif = (i_f + i_sub)*col_f + j_f;
+				int xis = i_sub*col_s;
+				for (j_sub = 0; j_sub < mod5j; j_sub += 5)
 				{
-					int rowindex = row + row_i;
-					int colindex = col + col_j;
-					int pixVal = grayImg.data[rowindex * width + colindex];
-					tmp_hist[pixVal]++;
+					int numf = xif + j_sub;
+					int nums = xis + j_sub;
+					sum = (int)pgray[numf + 0] - psub[nums + 0];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
+
+					sum = (int)pgray[numf + 1] - psub[nums + 1];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
+
+					sum = (int)pgray[numf + 2] - psub[nums + 2];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
+
+					sum = (int)pgray[numf + 3] - psub[nums + 3];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
+
+					sum = (int)pgray[numf + 4] - psub[nums + 4];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
+				}
+				for (; j_sub < res; j_sub++)
+				{
+					sum = (int)pgray[xif + j_sub] - psub[xis + j_sub];
+					sum = (sum >> 31)*(sum << 1) + sum;
+					diff[0] += sum;
 				}
 			}
-			for (int num = 0; num < hist_len; num++) {
-				int subpix = sub_hist[num];
-				int tmppix = tmp_hist[num];
-				int tmpdiffer = subpix - tmppix;
-				int antisign = !((tmpdiffer >> 31) & 1);
-				total_diff += (subpix - tmppix)*(2 * antisign - 1);
+			if (diff[0] < diff[1])
+			{
+				diff[1] = diff[0];
+				fx = j_f;
+				fy = i_f;
 			}
-			((float*)searchImg.data)[row * (width - sub_width) + col] = total_diff;
 		}
-
 	}
+	if (diff[1] == 2147483647)
+		return SUB_IMAGE_MATCH_FAIL;
 
-	float tmp = 1000; *x = 0; *y = 0;
-	for (int i = 0; i < height - sub_height; i++)
+	*x = fx;
+	*y = fy;
+	if (i_f == rowlim && j_f == collim)
+		return SUB_IMAGE_MATCH_OK;
+	else
+		return SUB_IMAGE_MATCH_FAIL;
+}
+
+
+int ustc_SubImgMatch_hist(Mat grayImg, Mat subImg, int* x, int* y)
+{
+	if (NULL == grayImg.data || NULL == subImg.data)
 	{
-		for (int j = 0; j < width - sub_width; j++) {
-			if (((float*)searchImg.data)[i*(width - sub_width) + j] < tmp) {
-				tmp = ((float*)searchImg.data)[i*(width - sub_width) + j];
-				*x = j;
-				*y = i;
-			}
-
-		}
-
-
+		printf("image is NULL.") ;
+		return SUB_IMAGE_MATCH_FAIL;
 	}
-	//int end = clock();
-	//cout << end - start << endl;
-	return SUB_IMAGE_MATCH_OK;
+	if (grayImg.rows < subImg.rows || grayImg.cols < subImg.cols)
+	{
+		printf("image is false." );
+		return SUB_IMAGE_MATCH_FAIL;
+	}
+	if (x == NULL || NULL == y)
+	{
+		x = new int(0);
+		y = new int(0);
+	}
+	uchar *pgray = grayImg.data;
+	int row_f = grayImg.rows;
+	int col_f = grayImg.cols;
+	int row_s = subImg.rows;
+	int col_s = subImg.cols;
+	int size_sub = row_s*col_s;
+	int rowlim = row_f - row_s + 1;
+	int collim = col_f - col_s + 1;
+	int subHist[256] = { 0 };
+	int diff[2] = { 0,2147483647 };
+	int sum, fx = 0, fy = 0;
+	ustc_CalcHist(subImg, subHist, 256);
+	int i_f, j_f, i_sub, j_sub;
+	for (i_f = 0; i_f < rowlim; i_f++)
+	{
+		for (j_f = 0; j_f < collim; j_f++)
+		{
+			diff[0] = 0;
+			int grayHist[256] = { 0 };
+			for (i_sub = 0; i_sub < row_s; i_sub++)
+			{
+				int xif = (i_f + i_sub)*col_f + j_f;
+				int xis = i_sub*col_s;
+				for (j_sub = 0; j_sub < col_s; j_sub++)
+				{
+					grayHist[pgray[xif + j_sub]]++;
+				}
+			}
+			for (i_sub = 0; i_sub < 256; i_sub++)
+			{
+				sum = grayHist[i_sub] - subHist[i_sub];
+				sum = (sum >> 31)*(sum << 1) + sum;
+				diff[0] += sum;
+			}
+			if (diff[0] < diff[1])
+			{
+				diff[1] = diff[0];
+				fx = j_f;
+				fy = i_f;
+			}
+		}
+	}
+	if (diff[1] == 2147483647)
+		return SUB_IMAGE_MATCH_FAIL;
+	*x = fx;
+	*y = fy;
+	if (i_f == rowlim&& j_f == collim)
+		return SUB_IMAGE_MATCH_OK;
+	else
+		return SUB_IMAGE_MATCH_FAIL;
 }
